@@ -39,15 +39,37 @@ if [[ ${GITHUB_REF:-} != refs/heads/* ]]; then
 fi
 branch=${GITHUB_REF#refs/heads/}
 
-if [[ ${AMEND:-false} == true && ${GITHUB_EVENT_NAME:-} == push ]]; then
+# Fold the staged renders into the pushed commit and force-push it. Returns
+# non-zero, with HEAD back on the pushed commit, if that isn't safe.
+amend_and_push() {
+	local pushed parents
 	pushed=$(git rev-parse HEAD)
-	git commit -q --amend --no-edit --no-verify
-	if git push --force-with-lease="$branch:$pushed" origin "HEAD:$branch"; then
-		echo "Amended renders into $(git log -1 --format='%h %s')"
-		exit 0
+	parents=$(git cat-file -p "$pushed" | sed -n 's/^parent //p' | xargs)
+
+	# actions/checkout clones with depth 1, where the pushed commit looks
+	# parentless. Amending it there would create a new root commit and the
+	# force-push would replace the branch history, so fetch its parents first.
+	if [[ -n $parents && $(git rev-parse --is-shallow-repository) == true ]]; then
+		git fetch -q --deepen=1 origin || return 1
 	fi
-	echo "::warning::$branch moved since $pushed was pushed; committing renders separately."
-	git reset -q --soft "$pushed"
+
+	git commit -q --amend --no-edit --no-verify || return 1
+	if [[ $(git log -1 --format=%P) != "$parents" ]]; then
+		echo "::warning::Amending changed the parents of $pushed; not force-pushing."
+		git reset -q --soft "$pushed"
+		return 1
+	fi
+	if ! git push --force-with-lease="$branch:$pushed" origin "HEAD:$branch"; then
+		echo "::warning::$branch moved since $pushed was pushed."
+		git reset -q --soft "$pushed"
+		return 1
+	fi
+	echo "Amended renders into $(git log -1 --format='%h %s')"
+}
+
+if [[ ${AMEND:-false} == true && ${GITHUB_EVENT_NAME:-} == push ]]; then
+	amend_and_push && exit 0
+	echo "Committing renders separately instead."
 fi
 
 git commit -q --author="$bot" -m "$COMMIT_MESSAGE"
