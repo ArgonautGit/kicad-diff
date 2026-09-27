@@ -1,0 +1,63 @@
+name: KiCad SVG renders
+description: Render KiCad schematics and PCBs to SVG and commit them, so design changes show up as image diffs on GitHub.
+branding:
+  icon: cpu
+  color: green
+
+inputs:
+  kicad-version:
+    description: Tag of the kicad/kicad Docker image to render with.
+    default: '10.0.6'
+  path:
+    description: Directory to search for KiCad projects.
+    default: '.'
+  output-dir:
+    description: Where to write the SVGs, relative to `path`.
+    default: kicad-svg
+  pcb-layers:
+    description: PCB layers to export, one SVG each.
+    default: '*.Cu,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,Edge.Cuts,F.Courtyard,B.Courtyard'
+  pcb-common-layers:
+    description: Layers drawn on every PCB SVG.
+    default: Edge.Cuts
+  force:
+    description: Re-render every project even if its inputs are unchanged.
+    default: 'false'
+  commit:
+    description: Commit and push the updated renders.
+    default: 'true'
+  commit-message:
+    description: Message for the render commit.
+    default: 'Update KiCad SVG renders [skip ci]'
+
+outputs:
+  changed:
+    description: '`true` if any render changed.'
+    value: ${{ steps.commit.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Render SVGs
+      shell: bash
+      env:
+        KICAD_VERSION: ${{ inputs.kicad-version }}
+        PROJECT_PATH: ${{ inputs.path }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        PCB_LAYERS: ${{ inputs.pcb-layers }}
+        PCB_COMMON_LAYERS: ${{ inputs.pcb-common-layers }}
+        FORCE: ${{ inputs.force }}
+      run: |
+        args=(--kicad-version "$KICAD_VERSION" --output "$OUTPUT_DIR"
+          --layers "$PCB_LAYERS" --common-layers "$PCB_COMMON_LAYERS")
+        [[ $FORCE == true ]] && args+=(--force)
+        bash "$GITHUB_ACTION_PATH/render.sh" "${args[@]}" "$PROJECT_PATH"
+
+    - name: Commit and push
+      id: commit
+      if: inputs.commit == 'true'
+      shell: bash
+      env:
+        RENDER_DIR: ${{ inputs.path }}/${{ inputs.output-dir }}
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+      run: bash "$GITHUB_ACTION_PATH/commit.sh"

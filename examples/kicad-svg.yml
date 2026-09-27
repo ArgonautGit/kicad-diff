@@ -1,0 +1,31 @@
+# Copy to .github/workflows/kicad-svg.yml in a KiCad project repository.
+name: KiCad SVG renders
+
+on:
+  push:
+    paths:
+      - '**.kicad_sch'
+      - '**.kicad_pcb'
+      - '**.kicad_pro'
+      - '**.kicad_wks'
+  # Run manually from the Actions tab, e.g. to create the first renders.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# A newer push supersedes a running render; it will pick up all changes.
+concurrency:
+  group: kicad-svg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ArgonautGit/kicad-diff@v1
+        # with:
+        #   kicad-version: '10.0.6'
+        #   output-dir: kicad-svg
+        #   pcb-layers: '*.Cu,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,Edge.Cuts,F.Courtyard,B.Courtyard'
