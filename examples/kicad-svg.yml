@@ -29,3 +29,4 @@ jobs:
         #   kicad-version: '10.0.6'
         #   output-dir: kicad-svg
         #   pcb-layers: '*.Cu,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,Edge.Cuts,F.Courtyard,B.Courtyard'
+        #   amend: true   # add renders to the pushed commit (force-push) instead of a new commit

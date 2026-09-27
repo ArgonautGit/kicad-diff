@@ -29,6 +29,12 @@ inputs:
   commit-message:
     description: Message for the render commit.
     default: 'Update KiCad SVG renders [skip ci]'
+  amend:
+    description: >-
+      On push events, fold the renders into the pushed commit and force-push it
+      instead of adding a separate commit. Falls back to a separate commit if
+      the branch moved in the meantime.
+    default: 'false'
 
 outputs:
   changed:
@@ -60,4 +66,5 @@ runs:
       env:
         RENDER_DIR: ${{ inputs.path }}/${{ inputs.output-dir }}
         COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        AMEND: ${{ inputs.amend }}
       run: bash "$GITHUB_ACTION_PATH/commit.sh"

@@ -53,10 +53,29 @@ kicad-svg/
 | `force` | `false` | Re-render everything, ignoring the stamps. |
 | `commit` | `true` | Commit and push the renders. |
 | `commit-message` | `Update KiCad SVG renders [skip ci]` | Message of the render commit. |
+| `amend` | `false` | Fold the renders into the pushed commit instead of adding a commit. See below. |
 
 Changing `kicad-version` or the layers re-renders every project once, because
 both are part of the stamp. Upgrade KiCad deliberately: a new version can draw
 things slightly differently, which shows up as a change on every sheet.
+
+### Amend mode
+
+With `amend: true`, the renders are added to the commit you pushed, so the
+design change and its SVG diff sit in one commit. This rewrites that commit,
+so the action force-pushes it:
+
+- After pushing, update your clone with `git pull --rebase` (or set
+  `git config --global pull.rebase true`). Your local copy of the commit is
+  dropped in favour of the amended one. A plain merging `git pull` would
+  create a merge commit instead.
+- The force-push is guarded by a lease on the commit you pushed. If the branch
+  moved while rendering, nothing is overwritten and the renders are committed
+  separately.
+- Only the last commit of a push is amended, and manual runs from the Actions
+  tab always add a separate commit.
+- Protected branches that disallow force-pushes will reject it, and commit
+  signatures are lost. Avoid it on branches other people work on.
 
 ## Running locally
 
@@ -77,14 +96,17 @@ repository as its remote, then checks that:
 
 1. the first run renders and pushes every project,
 2. editing one schematic only changes that project's renders,
-3. a run with nothing changed pushes nothing.
+3. a run with nothing changed pushes nothing,
+4. amend mode folds the renders into the pushed commit, and another clone
+   catches up with `git pull --rebase`,
+5. amend mode never overwrites a commit pushed while it was rendering.
 
 ```bash
 ./test/run-act.sh                        # act installed
 nix-shell -p act --run ./test/run-act.sh # NixOS
 ```
 
-It takes about 30 seconds once the Docker images are cached.
+It takes about a minute once the Docker images are cached.
 
 If you change `render.sh` in a way that changes its output, bump
 `FORMAT_VERSION` in it so existing renders are regenerated.

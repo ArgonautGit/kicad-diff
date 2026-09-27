@@ -8,6 +8,9 @@
 #   1. first run renders every project and pushes a commit
 #   2. after editing one schematic only that project's renders change
 #   3. a run with nothing changed pushes nothing
+#   4. amend mode folds the renders into the pushed commit, and another clone
+#      catches up with pull --rebase
+#   5. amend mode never overwrites a commit pushed while rendering
 
 set -euo pipefail
 
@@ -24,7 +27,7 @@ command -v act >/dev/null || {
 work=$(mktemp -d)
 # The act job runs as root, so some files end up owned by root.
 cleanup() {
-	docker run --rm -u 0 -v "$work:/work" "$image" rm -rf /work/consumer /work/remote.git
+	docker run --rm -u 0 -v "$work:/work" "$image" rm -rf /work/consumer /work/remote.git /work/laptop
 	rm -rf "$work"
 }
 trap cleanup EXIT
@@ -97,5 +100,51 @@ head=$(git --git-dir="$remote" rev-parse main)
 run_act "with nothing changed"
 [[ $(git --git-dir="$remote" rev-parse main) == "$head" ]] || fail "a commit was pushed without changes"
 echo "ok: no-op run pushed nothing"
+
+# Amend mode: renders go into the pushed commit instead of a new one.
+sed -i '/uses: test\/kicad-diff@v1/a\        with:\n          amend: true' \
+	"$repo/.github/workflows/kicad-svg.yml"
+git -C "$repo" commit -qam "Enable amend mode"
+sed -i '0,/"22nF"/s//"33nF"/' "$repo/complex_hierarchy/ampli_ht.kicad_sch"
+git -C "$repo" commit -qam "Change C203 to 33nF"
+git -C "$repo" push -q origin main
+parent=$(git -C "$repo" rev-parse HEAD~1)
+
+# A second clone that has the commit as originally pushed, like the machine
+# it was pushed from.
+laptop=$work/laptop
+git clone -q "$remote" "$laptop"
+git -C "$laptop" config user.name test
+git -C "$laptop" config user.email test@example.com
+
+run_act "amend mode"
+[[ $(last_msg) == "Change C203 to 33nF" ]] || fail "tip is not the amended commit: $(last_msg)"
+[[ $(git --git-dir="$remote" rev-parse main~1) == "$parent" ]] || fail "an extra commit was added"
+[[ $(git --git-dir="$remote" log -1 --format=%an main) == test ]] || fail "author of the amended commit changed"
+changed_files | grep -q 'kicad-svg/complex_hierarchy/sch/ampli_ht_vertical.svg' ||
+	fail "renders are not in the amended commit"
+echo "ok: renders amended into the pushed commit"
+
+git -C "$laptop" pull -q --rebase origin main
+[[ $(git -C "$laptop" rev-parse HEAD) == $(git --git-dir="$remote" rev-parse main) ]] ||
+	fail "pull --rebase did not catch up with the amended commit"
+[[ -z $(git -C "$laptop" status --porcelain) ]] || fail "working tree dirty after pull --rebase"
+echo "ok: pull --rebase on another clone lands on the amended commit"
+
+# Someone pushes while the render runs: the lease must protect their commit
+# and the renders fall back to a separate commit.
+sed -i '0,/"33nF"/s//"47nF"/' "$repo/complex_hierarchy/ampli_ht.kicad_sch"
+git -C "$repo" commit -qam "Change C203 to 47nF"
+git -C "$repo" push -q origin main
+git -C "$laptop" pull -q --rebase origin main
+echo notes >"$laptop/NOTES.md"
+git -C "$laptop" add NOTES.md
+git -C "$laptop" commit -qm "Add notes"
+git -C "$laptop" push -q origin main
+
+run_act "amend mode after the branch moved"
+[[ $(last_msg) == "Update KiCad SVG renders"* ]] || fail "expected a separate render commit: $(last_msg)"
+[[ $(git --git-dir="$remote" log -1 --format=%s main~1) == "Add notes" ]] || fail "the concurrent push was lost"
+echo "ok: concurrent push kept, renders committed separately"
 
 echo "PASS"
