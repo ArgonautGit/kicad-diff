@@ -41,7 +41,7 @@ branch=${GITHUB_REF#refs/heads/}
 for attempt in 1 2 3; do
 	git push origin "HEAD:$branch" && exit 0
 	echo "Push failed (attempt $attempt), rebasing onto origin/$branch"
-	git pull -q --rebase origin "$branch"
+	git pull -q --rebase --autostash origin "$branch"
 done
 echo "::error::Could not push renders to $branch"
 exit 1

@@ -119,7 +119,7 @@ normalize() {
 }
 
 render_project() {
-	local pro=$1 pdir name dest stamp tmp
+	local pro=$1 pdir name dest stamp src tmp
 	pdir=$(dirname "$pro")
 	name=$(basename "$pro" .kicad_pro)
 	# <output>/<project dir>, plus /<name> unless the directory is already
@@ -136,18 +136,26 @@ render_project() {
 	fi
 	echo "Rendering: ${pro#./}"
 
+	# Render from a copy: kicad-cli upgrades files it opens that were saved
+	# by an older KiCad (e.g. .kicad_prl), and the checkout must stay untouched.
+	src=$(mktemp -d)
+	(cd "$pdir" && find . -name '.?*' -prune -o -type f \
+		\( -name '*.kicad_*' -o -name '*-lib-table' \) -print0 |
+		xargs -0 -r cp --parents -t "$src") || return 1
+
 	tmp=$(mktemp -d)
-	if [[ -f $pdir/$name.kicad_sch ]]; then
+	if [[ -f $src/$name.kicad_sch ]]; then
 		kicad-cli sch export svg --exclude-drawing-sheet \
-			--output "$tmp/sch" "$pdir/$name.kicad_sch" >/dev/null || return 1
+			--output "$tmp/sch" "$src/$name.kicad_sch" >/dev/null || return 1
 		normalize "$tmp/sch" "$name"
 	fi
-	if [[ -f $pdir/$name.kicad_pcb ]]; then
+	if [[ -f $src/$name.kicad_pcb ]]; then
 		kicad-cli pcb export svg --mode-multi --exclude-drawing-sheet --page-size-mode 0 \
 			--layers "$layers" --common-layers "$common_layers" \
-			--output "$tmp/pcb" "$pdir/$name.kicad_pcb" >/dev/null || return 1
+			--output "$tmp/pcb" "$src/$name.kicad_pcb" >/dev/null || return 1
 		normalize "$tmp/pcb" "$name"
 	fi
+	rm -rf "$src"
 	echo "$stamp" >"$tmp/.stamp"
 
 	rm -rf "$dest"
