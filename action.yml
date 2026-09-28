@@ -35,11 +35,6 @@ inputs:
       instead of adding a separate commit. Falls back to a separate commit if
       the branch moved in the meantime.
     default: 'false'
-  cache-image:
-    description: >-
-      Keep the KiCad Docker image in the GitHub Actions cache and load it from
-      there instead of pulling it from Docker Hub on every run.
-    default: 'false'
 
 outputs:
   changed:
@@ -49,27 +44,13 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Restore KiCad image from cache
-      id: image-cache
-      if: inputs.cache-image == 'true'
-      uses: actions/cache/restore@v6
-      with:
-        path: ${{ runner.temp }}/kicad-image.tar.zst
-        key: kicad-image-${{ inputs.kicad-version }}-${{ runner.os }}-${{ runner.arch }}
-
     - name: Get KiCad image
       shell: bash
       env:
         IMAGE: kicad/kicad:${{ inputs.kicad-version }}
-        CACHE_HIT: ${{ steps.image-cache.outputs.cache-hit }}
       run: |
-        if [[ $CACHE_HIT == true ]]; then
-          zstd -dc "$RUNNER_TEMP/kicad-image.tar.zst" | docker load -q >/dev/null
-          echo "Loaded $IMAGE from the Actions cache in ${SECONDS}s"
-        else
-          docker pull -q "$IMAGE" >/dev/null
-          echo "Pulled $IMAGE from Docker Hub in ${SECONDS}s"
-        fi
+        docker pull -q "$IMAGE" >/dev/null
+        echo "Pulled $IMAGE in ${SECONDS}s"
 
     - name: Render SVGs
       shell: bash
@@ -85,22 +66,6 @@ runs:
           --layers "$PCB_LAYERS" --common-layers "$PCB_COMMON_LAYERS")
         [[ $FORCE == true ]] && args+=(--force)
         bash "$GITHUB_ACTION_PATH/render.sh" "${args[@]}" "$PROJECT_PATH"
-
-    - name: Export KiCad image for the cache
-      if: inputs.cache-image == 'true' && steps.image-cache.outputs.cache-hit != 'true'
-      shell: bash
-      env:
-        IMAGE: kicad/kicad:${{ inputs.kicad-version }}
-      run: |
-        docker save "$IMAGE" | zstd -q -T0 -3 -o "$RUNNER_TEMP/kicad-image.tar.zst"
-        echo "Exported $IMAGE ($(du -h "$RUNNER_TEMP/kicad-image.tar.zst" | cut -f1)) in ${SECONDS}s"
-
-    - name: Save KiCad image to cache
-      if: inputs.cache-image == 'true' && steps.image-cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v6
-      with:
-        path: ${{ runner.temp }}/kicad-image.tar.zst
-        key: kicad-image-${{ inputs.kicad-version }}-${{ runner.os }}-${{ runner.arch }}
 
     - name: Commit and push
       id: commit
